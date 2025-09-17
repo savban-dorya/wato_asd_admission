@@ -5,8 +5,6 @@
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "map_memory_core.hpp"
-#include "tf2/LinearMath/Quaternion.hpp"
-#include "tf2/LinearMath/Matrix3x3.hpp"
 
 const int GRID_SIZE = 30;  // Grid size in meters 30 x 30
 const int RESOLUTION = 10; // 1/resolution = number of cells per meter
@@ -36,6 +34,7 @@ class MapMemoryNode : public rclcpp::Node {
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
     void updateOccupancyGrid();
     void publishMapMemory();
+    double getYaw(double w, double x, double y, double z);
 
     //variables
     double last_x_, last_y_;

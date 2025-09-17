@@ -40,9 +40,9 @@ class MapMemoryNode : public rclcpp::Node {
     double last_x_, last_y_;
 
     // Bool to check if costmap has been recieved and if it should be updated
-    bool costmap_received_ = false;
-    bool costmap_behind_ = true;
-
+    bool costmap_received_;
+    bool odom_recieved_;
+    bool map_out_of_date_;
     // Constants
     const double DISTANCE_THRESHOLD = 1.5; // meters
 

@@ -21,8 +21,16 @@ MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(robot::MapMemor
 
   RCLCPP_INFO(this->get_logger(), "Map Memory Node has been initialized.");
 
+  // Setting the last_x
   last_x_ = GRID_SIZE;
   last_y_ = GRID_SIZE;
+
+  // Initialize booleans
+  costmap_received_ = false;
+  odom_recieved_ = false;
+  map_out_of_date_ = true;
+
+  global_occupancy_grid_.data.assign(GRID_SIZE * RESOLUTION * GRID_SIZE * RESOLUTION, 0);
 }
 
 void MapMemoryNode::costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
@@ -38,6 +46,8 @@ void MapMemoryNode::costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPt
 void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   // Store the received odometry as a pointer
   odom_ = *msg;
+  odom_recieved_ = true;
+
   RCLCPP_INFO(this->get_logger(), "Received new odometry.");
 
   // Initialize initial position if not set
@@ -53,7 +63,7 @@ void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   double distance_moved = std::sqrt(std::pow(current_x - last_x_, 2) + std::pow(current_y - last_y_, 2));
 
   if(distance_moved >= DISTANCE_THRESHOLD) {
-    if (!last_costmap_.data.empty()) {
+    if (costmap_received_ == true) {
 
       // Reset initial position to check distance from
       last_x_ = current_x;
@@ -78,13 +88,13 @@ double MapMemoryNode::getYaw(double w, double x, double y, double z)
 
 void MapMemoryNode::updateOccupancyGrid() {
   // Convert Costmap to global OccupancyGrid
-  if(costmap_received_ && costmap_behind_){
+  if(costmap_received_ && odom_recieved_ && map_out_of_date_){
 
     // Update costmap to the global OccupancyGrid
     
     // Get the yaw and current x
-    double robot_x = odom_.pose.pose.position.x;
-    double robot_y = odom_.pose.pose.position.y;
+    int robot_x = static_cast<int>(odom_.pose.pose.position.x * RESOLUTION);
+    int robot_y = static_cast<int>(odom_.pose.pose.position.y * RESOLUTION);
 
     double yaw = getYaw(
       odom_.pose.pose.orientation.w, 
@@ -93,24 +103,51 @@ void MapMemoryNode::updateOccupancyGrid() {
       odom_.pose.pose.orientation.z
     );
 
+    RCLCPP_INFO(this->get_logger(), "Robot position in grid x: %d y: %d yaw RAD: %f yaw DEG: %f", robot_x, robot_y, yaw, yaw*180/3.14);
+
     // Loop through costmap
     for(int x_costmap = -static_cast<int>(last_costmap_.info.width/2); x_costmap < static_cast<int>(last_costmap_.info.width/2); x_costmap++) {
       for(int y_costmap = -static_cast<int>(last_costmap_.info.height/2); y_costmap < static_cast<int>(last_costmap_.info.height/2); y_costmap++) {
         
-        // Convert to world coordinates
-        double world_x = robot_x + x_costmap * std::cos(yaw) + y_costmap * std::sin(yaw);
-        double world_y = robot_y - x_costmap * std::sin(yaw) + y_costmap * std::cos(yaw);
-
+        // Account for rotation
+        int world_x = robot_x + static_cast<int>(x_costmap * std::cos(yaw)) 
+                              + static_cast<int>(y_costmap * std::sin(yaw));
+                
+        int world_y = robot_y - static_cast<int>(x_costmap * std::sin(yaw)) 
+                              + static_cast<int>(y_costmap * std::cos(yaw));
+        
         // Account for OccupancyGrid origin is represented as (width/2, height/2)
-        world_x += GRID_SIZE / 2.0;
-        world_y += GRID_SIZE / 2.0;
+        world_x += (GRID_SIZE*RESOLUTION) / 2.0;
+        world_y += (GRID_SIZE*RESOLUTION) / 2.0;
 
         // Convert to global OccupancyGrid
-        global_occupancy_grid_.data[world_y * GRID_SIZE * RESOLUTION + world_x] = last_costmap_.data[x_costmap * GRID_SIZE * RESOLUTION + x_costmap];
+        if(world_x < GRID_SIZE * RESOLUTION && world_x >= 0 &&
+           world_y < GRID_SIZE * RESOLUTION && world_y >= 0) {
+          
+          // Variable to store value of costmap at point
+          int costmap_value_ = last_costmap_.data[y_costmap * GRID_SIZE * RESOLUTION + x_costmap];
+          
+          // Only replace if new costmap has higher chance of obstacle
+          if (global_occupancy_grid_.data[world_y * GRID_SIZE * RESOLUTION + world_x] < costmap_value_);
+          {
+            global_occupancy_grid_.data[world_y * GRID_SIZE * RESOLUTION + world_x] = costmap_value_;
+          }
+
+          if(last_costmap_.data[x_costmap * GRID_SIZE * RESOLUTION + x_costmap] == 100)
+          {
+            RCLCPP_INFO(this->get_logger(), "Obstacle at: (%d, %d)", world_x, world_y);
+          }
+        }
       }
     }
 
     publishMapMemory();
+  } else if (!costmap_received_) {
+    RCLCPP_WARN(this->get_logger(), "Costmap has not been received yet.");
+  } else if (!map_out_of_date_) {
+    RCLCPP_INFO(this->get_logger(), "Costmap is not behind the robot, skipping update.");
+  } else if (!odom_recieved_) {
+    RCLCPP_INFO(this->get_logger(), "No odometry to update OccupancyGrid");
   }
 }
 

@@ -118,7 +118,7 @@ private:
         // If diagonal movement (both dx and dy are 1)
         if (dx == 1 && dy == 1) {
             return 1.414; // √2
-        }
+        }  
         return 1.0; // Straight movement
     }
 

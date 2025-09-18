@@ -8,7 +8,7 @@
 
 const int GRID_SIZE = 30;  // Grid size in meters 30 x 30
 const int RESOLUTION = 10; // 1/resolution = number of cells per meter
-const int MAX_VALUE = 100;
+const int MAX_VALUE = 100; // Max Value of the costmap
 
 class MapMemoryNode : public rclcpp::Node {
   public:
@@ -42,10 +42,12 @@ class MapMemoryNode : public rclcpp::Node {
 
     // Bool to check if costmap has been recieved and if it should be updated
     bool costmap_received_;
-    bool odom_recieved_;
     bool map_out_of_date_;
+
     // Constants
     const double DISTANCE_THRESHOLD = 1.5; // meters
+    const int ARRAY_SIZE = GRID_SIZE * RESOLUTION; // Size of the array
+    const double LAST_XY_INIT = static_cast<double>(GRID_SIZE*RESOLUTION + 1.0);
 
 
 };

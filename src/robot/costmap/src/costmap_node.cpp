@@ -118,9 +118,9 @@ void CostmapNode::publishCostmap() {
   costmap_msg.header.stamp = this->now();
   costmap_msg.header.frame_id = "robot/chassis/lidar";
   costmap_msg.info.resolution = 1.0 / RESOLUTION; // meters per cell
-  costmap_msg.info.width = GRID_SIZE * RESOLUTION;
+  costmap_msg.info.width = GRID_SIZE * RESOLUTION; // does account for resolution
   costmap_msg.info.height = GRID_SIZE * RESOLUTION;
-  costmap_msg.info.origin.position.x = -GRID_SIZE / 2.0; // Center the grid
+  costmap_msg.info.origin.position.x = -GRID_SIZE / 2.0; // Center the grid keep in mind no resolution here
   costmap_msg.info.origin.position.y = -GRID_SIZE / 2.0;
   costmap_msg.info.origin.position.z = 0.0;
   costmap_msg.info.origin.orientation.w = 1.0;

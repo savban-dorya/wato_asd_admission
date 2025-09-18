@@ -4,6 +4,12 @@
 #include "rclcpp/rclcpp.hpp"
 
 #include "planner_core.hpp"
+// Need to include relevant header files for accessing navigation and geometry messages that
+// you subscribed to or are publishing to
+#include "nav_msgs/msg/occupancy_grid.hpp"
+#include "nav_msgs/msg/odometry.hpp"
+#include "nav_msgs/msg/path.hpp"
+#include "geometry_msgs/msg/point_stamped.hpp"
 
 class PlannerNode : public rclcpp::Node {
   public:
@@ -63,8 +69,5 @@ struct CompareF
     // We want the node with the smallest f_score on top
     return a.f_score > b.f_score;
   }
-
-  occupancy_grid_sub_= this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-            "/map", 10, std::bind(&PlannerNode::mapCallback, this, std::placeholders::_1));
 };
 #endif 

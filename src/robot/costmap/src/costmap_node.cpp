@@ -36,7 +36,7 @@ void CostmapNode::initializeCostmap() {
   // Initialize the occupancy grid to unknown (-1)
   for (int i = 0; i < GRID_SIZE * RESOLUTION; ++i) {
     for (int j = 0; j < GRID_SIZE * RESOLUTION; ++j) {
-      OccupancyGrid[i][j] = -1; // Unknown
+      OccupancyGrid[i][j] = 0; // Empty
     }
   }
 }
@@ -48,6 +48,7 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
   for (int i = 0; i < num_readings; i++) {
     // Get the distance reading from the ranges array
     float dist_reading = scan->ranges[i];
+
     if (dist_reading < scan->range_min || dist_reading > scan->range_max) {
       continue; // Ignore invalid readings
     }
@@ -66,7 +67,7 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
     }
   }
 
-  inflateObstacles();
+  //inflateObstacles();
   publishCostmap();
 
   RCLCPP_INFO(this->get_logger(), "Laser scan processed and occupancy grid updated.");
@@ -109,7 +110,7 @@ void CostmapNode::publishCostmap() {
 
   // Fill in the header and info
   costmap_msg.header.stamp = this->now();
-  costmap_msg.header.frame_id = "map";
+  costmap_msg.header.frame_id = "robot";
   costmap_msg.info.resolution = 1.0 / RESOLUTION; // meters per cell
   costmap_msg.info.width = GRID_SIZE * RESOLUTION;
   costmap_msg.info.height = GRID_SIZE * RESOLUTION;

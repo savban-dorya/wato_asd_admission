@@ -132,11 +132,6 @@ void MapMemoryNode::updateOccupancyGrid() {
           {
             global_occupancy_grid_.data[world_y * GRID_SIZE * RESOLUTION + world_x] = costmap_value_;
           }
-
-          if(last_costmap_.data[x_costmap * GRID_SIZE * RESOLUTION + x_costmap] == 100)
-          {
-            RCLCPP_INFO(this->get_logger(), "Obstacle at: (%d, %d)", world_x, world_y);
-          }
         }
       }
     }

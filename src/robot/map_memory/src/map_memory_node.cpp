@@ -103,8 +103,6 @@ void MapMemoryNode::updateOccupancyGrid() {
       odom_.pose.pose.orientation.z
     );
 
-    RCLCPP_INFO(this->get_logger(), "Robot position in grid x: %d y: %d yaw RAD: %f yaw DEG: %f", robot_x, robot_y, yaw, yaw*180/3.14);
-
     // Loop through costmap
     for(int x_costmap = -static_cast<int>(last_costmap_.info.width/2); x_costmap < static_cast<int>(last_costmap_.info.width/2); x_costmap++) {
       for(int y_costmap = -static_cast<int>(last_costmap_.info.height/2); y_costmap < static_cast<int>(last_costmap_.info.height/2); y_costmap++) {
@@ -125,12 +123,13 @@ void MapMemoryNode::updateOccupancyGrid() {
            world_y < GRID_SIZE * RESOLUTION && world_y >= 0) {
           
           // Variable to store value of costmap at point
-          int costmap_value_ = last_costmap_.data[y_costmap * GRID_SIZE * RESOLUTION + x_costmap];
+          int costmap_value_ = last_costmap_.data[y_costmap * GRID_SIZE + x_costmap];
           
           // Only replace if new costmap has higher chance of obstacle
-          if (global_occupancy_grid_.data[world_y * GRID_SIZE * RESOLUTION + world_x] < costmap_value_);
+          if (global_occupancy_grid_.data[world_y * GRID_SIZE + world_x] < MAX_VALUE);
           {
-            global_occupancy_grid_.data[world_y * GRID_SIZE * RESOLUTION + world_x] = costmap_value_;
+            //set to 100 for now
+            global_occupancy_grid_.data[world_y * GRID_SIZE  + world_x] = MAX_VALUE;
           }
         }
       }
@@ -152,8 +151,8 @@ void MapMemoryNode::publishMapMemory(){
   global_occupancy_grid_.info.resolution = 1.0 / RESOLUTION; // meters per cell
   global_occupancy_grid_.info.width = GRID_SIZE * RESOLUTION;
   global_occupancy_grid_.info.height = GRID_SIZE * RESOLUTION;
-  global_occupancy_grid_.info.origin.position.x = -GRID_SIZE / 2.0; // Center the grid
-  global_occupancy_grid_.info.origin.position.y = -GRID_SIZE / 2.0;
+  global_occupancy_grid_.info.origin.position.x = -GRID_SIZE * RESOLUTION / 2.0; // Center the grid
+  global_occupancy_grid_.info.origin.position.y = -GRID_SIZE * RESOLUTION / 2.0;
   global_occupancy_grid_.info.origin.position.z = 0.0;
   global_occupancy_grid_.info.origin.orientation.w = 1.0;
 

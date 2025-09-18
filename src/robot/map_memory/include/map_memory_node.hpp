@@ -8,6 +8,7 @@
 
 const int GRID_SIZE = 30;  // Grid size in meters 30 x 30
 const int RESOLUTION = 10; // 1/resolution = number of cells per meter
+const int MAX_VALUE = 100;
 
 class MapMemoryNode : public rclcpp::Node {
   public:

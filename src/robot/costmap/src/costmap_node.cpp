@@ -42,6 +42,10 @@ void CostmapNode::initializeCostmap() {
 }
 
 void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr scan) {
+
+  // Initializes costmap to old 0 clears old ones too
+  initializeCostmap();
+
   // Process the incoming laser scan data and update the occupancy grid
   int num_readings = static_cast<int>((scan->angle_max - scan->angle_min) / scan->angle_increment);
 
@@ -67,7 +71,7 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
     }
   }
 
-  //inflateObstacles();
+  inflateObstacles();
   publishCostmap();
 
   RCLCPP_INFO(this->get_logger(), "Laser scan processed and occupancy grid updated.");
@@ -75,26 +79,28 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
 
 void CostmapNode::inflateObstacles(){
   // 2 loops to traverse the grid looking for occupied cells (i,j)
-  for (int i = 0; i < GRID_SIZE * RESOLUTION; ++i) {
-    for (int j = 0; j < GRID_SIZE * RESOLUTION; ++j) {
+  for (int x_grid_ = 0; x_grid_ < GRID_SIZE * RESOLUTION; x_grid_++) {
+    for (int y_grid_ = 0; y_grid_ < GRID_SIZE * RESOLUTION; y_grid_++) {
 
       // If an occupied cell is found, inflate around it
-      if (OccupancyGrid[i][j] == MAX_COST) {
+      if (OccupancyGrid[x_grid_][y_grid_] == MAX_COST) {
 
         //traverse using dx and dy for distance from the occupied cell
-        for (int dx = -INFLATION_RADIUS; dx <= INFLATION_RADIUS; ++dx) {
-          for (int dy = -INFLATION_RADIUS; dy <= INFLATION_RADIUS; ++dy) {
+        for (int dx = -INFLATION_RADIUS * RESOLUTION; dx <= INFLATION_RADIUS * RESOLUTION; ++dx) {
+          for (int dy = -INFLATION_RADIUS * RESOLUTION; dy <= INFLATION_RADIUS * RESOLUTION; ++dy) {
 
             //convert  to grid coordinates
-            int x = i + dx;
-            int y = j + dy;
+            int x = x_grid_ + dx;
+            int y = y_grid_ + dy;
 
             // Check bounds and inflate using the formula
             if (x >= 0 && x < GRID_SIZE * RESOLUTION && y >= 0 && y < GRID_SIZE * RESOLUTION) {
+              
+              int inflated_cost_ = MAX_COST * ((INFLATION_RADIUS * RESOLUTION - std::sqrt(dx * dx + dy * dy)) / (INFLATION_RADIUS * RESOLUTION));
 
-              //check if already occupied
-              if (OccupancyGrid[x][y] != MAX_COST) {
-                OccupancyGrid[x][y] = MAX_COST * ((INFLATION_RADIUS - std::sqrt(dx * dx + dy * dy)) / INFLATION_RADIUS);
+              // Keep larger cost values (closer to obstacle)
+              if (OccupancyGrid[x][y] < inflated_cost_) {
+                OccupancyGrid[x][y] = inflated_cost_;
               }
             }
           }
@@ -110,7 +116,7 @@ void CostmapNode::publishCostmap() {
 
   // Fill in the header and info
   costmap_msg.header.stamp = this->now();
-  costmap_msg.header.frame_id = "robot";
+  costmap_msg.header.frame_id = "robot/chassis/lidar";
   costmap_msg.info.resolution = 1.0 / RESOLUTION; // meters per cell
   costmap_msg.info.width = GRID_SIZE * RESOLUTION;
   costmap_msg.info.height = GRID_SIZE * RESOLUTION;
@@ -121,9 +127,12 @@ void CostmapNode::publishCostmap() {
 
   // Flatten the 2D occupancy grid into a 1D array for the message
   costmap_msg.data.resize(GRID_SIZE * RESOLUTION * GRID_SIZE * RESOLUTION);
-  for (int i = 0; i < GRID_SIZE * RESOLUTION; ++i) {
-    for (int j = 0; j < GRID_SIZE * RESOLUTION; ++j) {
-      costmap_msg.data[i * GRID_SIZE * RESOLUTION + j] = OccupancyGrid[i][j];
+
+  // Insert the data
+  for (int x_grid_ = 0; x_grid_ < GRID_SIZE * RESOLUTION; x_grid_++) {
+    for (int y_grid_ = 0; y_grid_ < GRID_SIZE * RESOLUTION; y_grid_++) {
+
+      costmap_msg.data[y_grid_ * GRID_SIZE * RESOLUTION + x_grid_] = OccupancyGrid[x_grid_][y_grid_];
     }
   }
 

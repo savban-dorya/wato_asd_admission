@@ -38,6 +38,7 @@ class MapMemoryNode : public rclcpp::Node {
     double getYaw(double w, double x, double y, double z);
     int getIndex(int x, int y);
 
+
     //variables
     double last_x_, last_y_;
 

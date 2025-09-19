@@ -30,7 +30,7 @@ MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(robot::MapMemor
 
   // Initialize booleans
   costmap_received_ = false;
-  map_out_of_date_ = true;
+  map_out_of_date_ = false;
 
   // Initialize map to 0 (empty)
   global_occupancy_grid_.data.assign(ARRAY_WIDTH * ARRAY_HEIGHT, 0);
@@ -47,8 +47,12 @@ void MapMemoryNode::costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPt
   // Set costmap recieved to true
   costmap_received_ = true;
 
-  RCLCPP_INFO(this->get_logger(), "Received new costmap.");
+  RCLCPP_INFO(this->get_logger(), "Costmap Recieved");
 }
+
+
+
+
 
 // Recieve odometry and check if the distance traveled calls for an update
 void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -61,6 +65,7 @@ void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   if(last_x_ == LAST_XY_INIT && last_y_ == LAST_XY_INIT) {
     last_x_ = odom_.pose.pose.position.x;
     last_y_ = odom_.pose.pose.position.y;
+    map_out_of_date_ = true;
     return;
   }
 
@@ -96,13 +101,21 @@ double MapMemoryNode::getYaw(double w, double x, double y, double z)
                     1.0 - 2.0 * (y * y + z * z));
 }
 
+
+
 int MapMemoryNode::getIndex(int x, int y){
   return (y + POINT_TO_ARRAY) * ARRAY_WIDTH + (x + POINT_TO_ARRAY);
 }
 
 
+
+
+
+
 void MapMemoryNode::updateOccupancyGrid() {
   // Convert Costmap to global OccupancyGrid
+  RCLCPP_INFO(this->get_logger(), "updateOccupancy Grid Called");
+
 
   if(costmap_received_ && map_out_of_date_){
 
@@ -127,21 +140,15 @@ void MapMemoryNode::updateOccupancyGrid() {
           // Account for rotation
           double unrotated_costmap_point_x = costmap_point_x * std::cos(robot_yaw)  - costmap_point_y * std::sin(robot_yaw);
 
-          double unrotated_costmap_point_y = costmap_point_x * std::cos(robot_yaw) + costmap_point_y * std::sin(robot_yaw);
+          double unrotated_costmap_point_y = costmap_point_x * std::sin(robot_yaw) + costmap_point_y * std::cos(robot_yaw);
 
           // Find point in the world using (0,0) as the center of the world
           int world_to_origin_x = static_cast<int>(robot_to_origin_x + unrotated_costmap_point_x);
           int world_to_origin_y = static_cast<int>(robot_to_origin_y + unrotated_costmap_point_y);  
 
-          
-          //RCLCPP_INFO(this->get_logger(), "Getting indexes for world_to_origin_x: %d world_to_origin_y: %d", world_to_origin_x, world_to_origin_y);
-          //RCLCPP_INFO(this->get_logger(), "Getting indexes for costmap_point_x: %d costmap_point_y: %d", costmap_point_x, costmap_point_y);
-
+          // Get Array Indices for the points
           int global_array_index = getIndex(world_to_origin_x, world_to_origin_y);
           int costmap_array_index = getIndex(costmap_point_x, costmap_point_y);
-          
-          //RCLCPP_INFO(this->get_logger(), "Getting indexes for global_array_index: %d costmap_arrary_index: %d", global_array_index, costmap_array_index);
-
 
           // Check if within bounds
           if(global_array_index < ARRAY_WIDTH * ARRAY_HEIGHT && global_array_index >= 0)
@@ -167,8 +174,13 @@ void MapMemoryNode::updateOccupancyGrid() {
     publishMapMemory();
     costmap_received_ = false;
     map_out_of_date_ = false;
-    RCLCPP_INFO(this->get_logger(), "Global Occupancy grid has been updated");
 
+    int occupied = 0;
+    for (auto val : last_costmap_.data) {
+        if (val > 0) occupied++;
+    }
+
+    RCLCPP_INFO(this->get_logger(), "Number of obstacles: %d", occupied);
 
   } else if (!costmap_received_) {
     RCLCPP_WARN(this->get_logger(), "Costmap has not been received yet.");

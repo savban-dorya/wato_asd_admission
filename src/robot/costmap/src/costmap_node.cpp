@@ -49,32 +49,39 @@ void CostmapNode::laserCallback(const sensor_msgs::msg::LaserScan::SharedPtr sca
   // Process the incoming laser scan data and update the occupancy grid
   int num_readings = static_cast<int>((scan->angle_max - scan->angle_min) / scan->angle_increment);
 
-  for (int i = 0; i < num_readings; i++) {
-    // Get the distance reading from the ranges array
-    float dist_reading = scan->ranges[i];
+  // Only print if there is more than one reading to fix empty map_memory at the beginning
+  if(num_readings > 0)
+  {
+    for (int i = 0; i < num_readings; i++) {
+      // Get the distance reading from the ranges array
+      float dist_reading = scan->ranges[i];
 
-    if (dist_reading < scan->range_min || dist_reading > scan->range_max) {
-      continue; // Ignore invalid readings
+      if (dist_reading < scan->range_min || dist_reading > scan->range_max) {
+        continue; // Ignore invalid readings
+      }
+
+      // angle of the current reading
+      float angle = scan->angle_min + i * scan->angle_increment;
+
+      // Convert polar coordinates (dist_reading, angle) to grid coordinates (x, y)
+      // + (GRID_SIZE / 2.0) to center the robot in the grid so (0,0) is at the center of the grid
+      int x = static_cast<int>((dist_reading * cos(angle) + (GRID_SIZE / 2.0)) * RESOLUTION);
+      int y = static_cast<int>((dist_reading * sin(angle) + (GRID_SIZE / 2.0)) * RESOLUTION);
+
+      // Mark occupied if within grid bounds
+      if (x >= 0 && x < GRID_SIZE * RESOLUTION && y >= 0 && y < GRID_SIZE * RESOLUTION) {
+        OccupancyGrid[x][y] = MAX_COST; // Mark as occupied
+      }
     }
 
-    // angle of the current reading
-    float angle = scan->angle_min + i * scan->angle_increment;
+    inflateObstacles();
+    publishCostmap();
 
-    // Convert polar coordinates (dist_reading, angle) to grid coordinates (x, y)
-    // + (GRID_SIZE / 2.0) to center the robot in the grid so (0,0) is at the center of the grid
-    int x = static_cast<int>((dist_reading * cos(angle) + (GRID_SIZE / 2.0)) * RESOLUTION);
-    int y = static_cast<int>((dist_reading * sin(angle) + (GRID_SIZE / 2.0)) * RESOLUTION);
-
-    // Mark occupied if within grid bounds
-    if (x >= 0 && x < GRID_SIZE * RESOLUTION && y >= 0 && y < GRID_SIZE * RESOLUTION) {
-      OccupancyGrid[x][y] = MAX_COST; // Mark as occupied
-    }
+    RCLCPP_INFO(this->get_logger(), "Laser scan processed and occupancy grid updated.");
+  } else 
+  {
+    RCLCPP_INFO(this->get_logger(), "Did not recieve LIDAR");
   }
-
-  inflateObstacles();
-  publishCostmap();
-
-  RCLCPP_INFO(this->get_logger(), "Laser scan processed and occupancy grid updated.");
 }
 
 void CostmapNode::inflateObstacles(){

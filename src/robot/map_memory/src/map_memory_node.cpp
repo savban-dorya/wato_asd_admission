@@ -3,6 +3,9 @@
 #include <memory>
 #include <cmath>
 
+
+
+
 MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(robot::MapMemoryCore(this->get_logger())) {
 
   // Initialize subscriber to costmap
@@ -29,8 +32,12 @@ MapMemoryNode::MapMemoryNode() : Node("map_memory"), map_memory_(robot::MapMemor
   costmap_received_ = false;
   map_out_of_date_ = true;
 
-  global_occupancy_grid_.data.assign(ARRAY_SIZE * ARRAY_SIZE, 0);
+  // Initialize map to 0 (empty)
+  global_occupancy_grid_.data.assign(ARRAY_WIDTH * ARRAY_HEIGHT, 0);
 }
+
+
+
 
 // Store new recieved costmap and use the bool to show it is recieved
 void MapMemoryNode::costmapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
@@ -64,7 +71,7 @@ void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
   double distance_moved = std::sqrt(std::pow(current_x - last_x_, 2) + std::pow(current_y - last_y_, 2));
 
   // If its too far from initial position
-  if(distance_moved >= DISTANCE_THRESHOLD && costmap_received_ == true) {
+  if(distance_moved >= DISTANCE_THRESHOLD) {
     
 
     // Reset initial position to check distance from
@@ -80,72 +87,88 @@ void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
 }
 
 
+
+
 // Function to convert quaternion to Yaw
 double MapMemoryNode::getYaw(double w, double x, double y, double z)
 {
-    return std::atan2(2.0 * (w * z + x * y),
-                      1.0 - 2.0 * (y * y + z * z));
+  return std::atan2(2.0 * (w * z + x * y),
+                    1.0 - 2.0 * (y * y + z * z));
 }
+
+int MapMemoryNode::getIndex(int x, int y){
+  return (y + POINT_TO_ARRAY) * ARRAY_WIDTH + (x + POINT_TO_ARRAY);
+}
+
 
 void MapMemoryNode::updateOccupancyGrid() {
   // Convert Costmap to global OccupancyGrid
+
   if(costmap_received_ && map_out_of_date_){
 
     // Update costmap to the global OccupancyGrid
-    
-    // Get the yaw and current position of the robot
-    int robot_x = static_cast<int>(odom_.pose.pose.position.x * RESOLUTION);
-    int robot_y = static_cast<int>(odom_.pose.pose.position.y * RESOLUTION);
 
-    double yaw = getYaw(
+    // Get Robot pose
+    double robot_to_origin_x = odom_.pose.pose.position.x * RESOLUTION;
+    double robot_to_origin_y = odom_.pose.pose.position.y * RESOLUTION;
+
+    double robot_yaw = getYaw(
       odom_.pose.pose.orientation.w, 
       odom_.pose.pose.orientation.x, 
       odom_.pose.pose.orientation.y, 
       odom_.pose.pose.orientation.z
     );
 
-    // Loop through costmap
-    for(int x_costmap = -static_cast<int>(last_costmap_.info.width/2); x_costmap < static_cast<int>(last_costmap_.info.width/2); x_costmap++) {
-      for(int y_costmap = -static_cast<int>(last_costmap_.info.height/2); y_costmap < static_cast<int>(last_costmap_.info.height/2); y_costmap++) {
-        
-        // Account for rotation
-        int world_x = robot_x + static_cast<int>(x_costmap * std::cos(yaw)) 
-                              + static_cast<int>(y_costmap * std::sin(yaw));
-                
-        int world_y = robot_y - static_cast<int>(x_costmap * std::sin(yaw)) 
-                              + static_cast<int>(y_costmap * std::cos(yaw));
-        
-        // Account for OccupancyGrid origin is represented as (width/2, height/2)
-        world_x += (ARRAY_SIZE) / 2.0;
-        world_y += (ARRAY_SIZE) / 2.0;
+    // Loop through every point in costmap and convert it to the grid
+    for(int costmap_point_x = -POINT_TO_ARRAY; costmap_point_x < POINT_TO_ARRAY; costmap_point_x++)
+    {
+      for(int costmap_point_y = -POINT_TO_ARRAY; costmap_point_y < POINT_TO_ARRAY; costmap_point_y++)
+      {
+          // Account for rotation
+          double unrotated_costmap_point_x = costmap_point_x * std::cos(robot_yaw)  - costmap_point_y * std::sin(robot_yaw);
 
-        // Convert to global OccupancyGrid
-        if(world_x < ARRAY_SIZE && world_x >= 0 &&
-           world_y < ARRAY_SIZE && world_y >= 0) {
-          
-          // Variable to store value of costmap at point
-          int costmap_value_ = last_costmap_.data[y_costmap * GRID_SIZE + x_costmap];
-          
-          /*
-          if(costmap_value_ == MAX_VALUE){
-            RCLCPP_INFO(this->get_logger(), 
-                        "Obstacle at | world_x:%d world_y:%d | x_costmap:%d y_costmap: %d Yaw: %f", 
-                        world_x, world_y, x_costmap + 150, y_costmap + 150, yaw);
-          }
-          */
+          double unrotated_costmap_point_y = costmap_point_x * std::cos(robot_yaw) + costmap_point_y * std::sin(robot_yaw);
 
-          // Only replace if new costmap has higher chance of obstacle
-          if (global_occupancy_grid_.data[world_y * GRID_SIZE + world_x] < costmap_value_);
+          // Find point in the world using (0,0) as the center of the world
+          int world_to_origin_x = static_cast<int>(robot_to_origin_x + unrotated_costmap_point_x);
+          int world_to_origin_y = static_cast<int>(robot_to_origin_y + unrotated_costmap_point_y);  
+
+          
+          //RCLCPP_INFO(this->get_logger(), "Getting indexes for world_to_origin_x: %d world_to_origin_y: %d", world_to_origin_x, world_to_origin_y);
+          //RCLCPP_INFO(this->get_logger(), "Getting indexes for costmap_point_x: %d costmap_point_y: %d", costmap_point_x, costmap_point_y);
+
+          int global_array_index = getIndex(world_to_origin_x, world_to_origin_y);
+          int costmap_array_index = getIndex(costmap_point_x, costmap_point_y);
+          
+          //RCLCPP_INFO(this->get_logger(), "Getting indexes for global_array_index: %d costmap_arrary_index: %d", global_array_index, costmap_array_index);
+
+
+          // Check if within bounds
+          if(global_array_index < ARRAY_WIDTH * ARRAY_HEIGHT && global_array_index >= 0)
           {
-            global_occupancy_grid_.data[world_y * GRID_SIZE  + world_x] = costmap_value_;
+            if(global_occupancy_grid_.data[global_array_index] < last_costmap_.data[costmap_array_index])
+            {
+              global_occupancy_grid_.data[global_array_index] = last_costmap_.data[costmap_array_index];
+
+              if(last_costmap_.data[costmap_array_index] > 0)
+              {
+                /*
+                RCLCPP_INFO(this->get_logger(), "Obstacle at x: %d y: %d cval: %d occ_val: %d", 
+                                                world_to_origin_x, world_to_origin_y, last_costmap_.data[costmap_array_index], 
+                                                global_occupancy_grid_.data[global_array_index]);
+                */
+              }
+            }
           }
-        }
       }
     }
 
-    // Publish new grid and show that the map is now up to date
+    // Set back to false
     publishMapMemory();
+    costmap_received_ = false;
     map_out_of_date_ = false;
+    RCLCPP_INFO(this->get_logger(), "Global Occupancy grid has been updated");
+
 
   } else if (!costmap_received_) {
     RCLCPP_WARN(this->get_logger(), "Costmap has not been received yet.");
@@ -154,14 +177,17 @@ void MapMemoryNode::updateOccupancyGrid() {
   }
 }
 
-void MapMemoryNode::publishMapMemory(){
-  // Set info for the OccupancyGrid
 
+
+
+void MapMemoryNode::publishMapMemory(){
+
+  // Set info for the OccupancyGrid
   global_occupancy_grid_.header.stamp = this->now();
   global_occupancy_grid_.header.frame_id = "sim_world";
   global_occupancy_grid_.info.resolution = 1.0 / RESOLUTION; // meters per cell
-  global_occupancy_grid_.info.width = ARRAY_SIZE;
-  global_occupancy_grid_.info.height = ARRAY_SIZE;
+  global_occupancy_grid_.info.width = ARRAY_WIDTH;
+  global_occupancy_grid_.info.height = ARRAY_HEIGHT;
   global_occupancy_grid_.info.origin.position.x = -GRID_SIZE / 2.0; // Center the grid keep in mind it does not have the resolution
   global_occupancy_grid_.info.origin.position.y = -GRID_SIZE / 2.0;
   global_occupancy_grid_.info.origin.position.z = 0.0;
@@ -172,6 +198,9 @@ void MapMemoryNode::publishMapMemory(){
   RCLCPP_INFO(this->get_logger(), "Published global occupancy grid.");
 
 }
+
+
+
 
 int main(int argc, char ** argv)
 {

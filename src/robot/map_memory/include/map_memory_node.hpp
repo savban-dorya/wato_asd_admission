@@ -36,6 +36,7 @@ class MapMemoryNode : public rclcpp::Node {
     void updateOccupancyGrid();
     void publishMapMemory();
     double getYaw(double w, double x, double y, double z);
+    int getIndex(int x, int y);
 
     //variables
     double last_x_, last_y_;
@@ -46,7 +47,10 @@ class MapMemoryNode : public rclcpp::Node {
 
     // Constants
     const double DISTANCE_THRESHOLD = 1.5; // meters
-    const int ARRAY_SIZE = GRID_SIZE * RESOLUTION; // Size of the array
+    const int ARRAY_WIDTH = GRID_SIZE * RESOLUTION; // Width of the array (300)
+    const int ARRAY_HEIGHT = GRID_SIZE * RESOLUTION; // Height of the array (300)
+    const int ARRAY_SIZE = GRID_SIZE * RESOLUTION * GRID_SIZE * RESOLUTION; // Size of the array (30 000)
+    const int POINT_TO_ARRAY = (GRID_SIZE * RESOLUTION)/2;
     const double LAST_XY_INIT = static_cast<double>(GRID_SIZE*RESOLUTION + 1.0);
 
 

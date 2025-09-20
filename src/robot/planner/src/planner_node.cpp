@@ -14,7 +14,31 @@
 
  // ------------------- Supporting Structures -------------------
   
-  // 2D grid index
+ 
+
+
+ControlNode::ControlNode(): Node("control"), control_(robot::ControlCore(this->get_logger())) {
+public:
+    enum class State { WAITING_FOR_GOAL, WAITING_FOR_ROBOT_TO_REACH_GOAL };
+
+    PlannerNode() : Node("planner"), state_(State::WAITING_FOR_GOAL) {
+        // Subscribers
+        map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+            "/map", 10, std::bind(&PlannerNode::mapCallback, this, std::placeholders::_1));
+        goal_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
+            "/goal_point", 10, std::bind(&PlannerNode::goalCallback, this, std::placeholders::_1));
+        odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+            "/odom/filtered", 10, std::bind(&PlannerNode::odomCallback, this, std::placeholders::_1));
+
+        // Publisher
+        path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/path", 10);
+
+        // Timer
+        timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(500), std::bind(&PlannerNode::timerCallback, this));
+    }
+
+     // 2D grid index
   struct CellIndex
   {
     int x;
@@ -72,29 +96,6 @@
       return a->f_score > b->f_score;
     }
   };
-
-
-
-class PlannerNode : public rclcpp::Node {
-public:
-    enum class State { WAITING_FOR_GOAL, WAITING_FOR_ROBOT_TO_REACH_GOAL };
-
-    PlannerNode() : Node("planner"), state_(State::WAITING_FOR_GOAL) {
-        // Subscribers
-        map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-            "/map", 10, std::bind(&PlannerNode::mapCallback, this, std::placeholders::_1));
-        goal_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
-            "/goal_point", 10, std::bind(&PlannerNode::goalCallback, this, std::placeholders::_1));
-        odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom/filtered", 10, std::bind(&PlannerNode::odomCallback, this, std::placeholders::_1));
-
-        // Publisher
-        path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/path", 10);
-
-        // Timer
-        timer_ = this->create_wall_timer(
-            std::chrono::milliseconds(500), std::bind(&PlannerNode::timerCallback, this));
-    }
 
 private:
     State state_;

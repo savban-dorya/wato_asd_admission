@@ -4,6 +4,8 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include <vector>
+#include <limits>
+#include <algorithm>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
@@ -28,7 +30,7 @@
   
     bool operator!=(const CellIndex &other) const
     {
-      return (x != other.x || y != other.y);
+      return !(*this == other);
     }
   };
   
@@ -53,42 +55,48 @@
   
     AStarNode(CellIndex idx, double g, double h) 
       : index(idx), g_score(g), h_score(h), f_score(g + h), parent(nullptr) {}
+    
+    void updateScores(double g, double h) {
+      g_score = g;
+      h_score = h;
+      f_score = g + h;
+    }
   };
   
   // Comparator for the priority queue (min-heap by f_score)
   struct CompareF
   {
-    bool operator()(const AStarNode &a, const AStarNode &b)
+    bool operator()(const AStarNode* a, const AStarNode* b) const
     {
       // We want the node with the smallest f_score on top
-      return a.f_score > b.f_score;
+      return a->f_score > b->f_score;
     }
   };
 
 
 
-PlannerNode::PlannerNode() : Node("planner"), planner_(robot::PlannerCore(this->get_logger())) {
-
-  class PlannerNode : public rclcpp::Node {
-  public:
-      PlannerNode() : Node("planner_node"), state_(State::WAITING_FOR_GOAL) {
-          // Subscribers
-          map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-              "/map", 10, std::bind(&PlannerNode::mapCallback, this, std::placeholders::_1));
-          goal_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
-              "/goal_point", 10, std::bind(&PlannerNode::goalCallback, this, std::placeholders::_1));
-          odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-              "/odom/filtered", 10, std::bind(&PlannerNode::odomCallback, this, std::placeholders::_1));
-  
-          // Publisher
-          path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/path", 10);
-  
-          // Timer
-          timer_ = this->create_wall_timer(
-              std::chrono::milliseconds(500), std::bind(&PlannerNode::timerCallback, this));
-      }
-  private:
+class PlannerNode : public rclcpp::Node {
+public:
     enum class State { WAITING_FOR_GOAL, WAITING_FOR_ROBOT_TO_REACH_GOAL };
+
+    PlannerNode() : Node("planner"), state_(State::WAITING_FOR_GOAL) {
+        // Subscribers
+        map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+            "/map", 10, std::bind(&PlannerNode::mapCallback, this, std::placeholders::_1));
+        goal_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
+            "/goal_point", 10, std::bind(&PlannerNode::goalCallback, this, std::placeholders::_1));
+        odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+            "/odom/filtered", 10, std::bind(&PlannerNode::odomCallback, this, std::placeholders::_1));
+
+        // Publisher
+        path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/path", 10);
+
+        // Timer
+        timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(500), std::bind(&PlannerNode::timerCallback, this));
+    }
+
+private:
     State state_;
  
     // Subscribers and Publisher
@@ -300,152 +308,36 @@ PlannerNode::PlannerNode() : Node("planner"), planner_(robot::PlannerCore(this->
         // Show start node and end node on foxglove
         // these are all 30x30 cells, so each cell is 5m (im assuming)
 
-        int[] map_data = map_sub_.data;
+        // int[] map_data = map_sub_.data;
 
         
         // getting covariance matrix
-        float[36] robot_pose = odom_sub_.pose.covariance;
-        int robot_x = int(robot_pose.x);
-        int robot_y = int(robot_pose.y);
-        // round position to nearest int and assign it a cell
-        //cells are 0,299 x and y, and coordinates range too
-        // to find correct cell, convert robot pose coords to a specific cell in map memory
-        int x = (-15+15) * map_sub_.info.resolution;
-        int y = (-15+15) * map_sub_.info.resolution;
+        // odom_sub_ is a subscription handle, not the data
+        // std::array<double, 36> robot_pose = robot_pose_.covariance;
+        // int robot_x = int(robot_pose.x);
+        // int robot_y = int(robot_pose.y);
+        // // round position to nearest int and assign it a cell
+        // //cells are 0,299 x and y, and coordinates range too
+        // // to find correct cell, convert robot pose coords to a specific cell in map memory
+        // // using map from callback to access info
+        // double resolution = current_map_->info.resolution;
+        // int width = current_map_->info.width;
+        // int height = current_map_->info.height;
 
-        int robot_cell = y * width + x;
 
-        //f-score of zero indicates its the start point?
-        AStarNode start_node = new AStarNode(robot_cell,0);
-        
-        AStarNode goal_node = new AStarNode(goal_.point, 0);
-        
-        //how the final path will be stored as before publishing
-        pose[] finalPath;
-
-        //end flag
-        bool pathFound = false;
-        
-        AStarNode current_node = start_node;
-        vector<AStarNode> explored;
-        vector<AStarNode> notExplored;
-
-        explored.push_back(start_node);
-
-        // main logic loop for path generation
-        while (!pathFound){
-          // finds all the neighbours and their f_scores
-          lowestList = findLowestFScore(findNeighbours(current_node));
-          // if only one node is the lowest, then use that
-          if (lowestList.length() == 1){
-            current_node = lowestList[0];
-            lowestList_
-          }
-          
-          explored.add(current_node);
-          notExplored.remove(current_node);
-
-          if (current_node == goal_node){
-            pathFound = true;
-          }
-          // double check path hasn't already been found
-          else if (!pathFound){
-            // find all the neighbour nodes
-            // MAKE THIS FUNCTION
-            AStarNode[8] neighbours = findNeighbours(); 
-            // loop through all neighbour nodes
-            for (int i = 0; i < 8){
-              //MAKE THIS FUNCTION(S)
-              if (isTraversable(neighbours[i]) == true || hasExploredNode(neighbours[i])){
-                // do yo thang
-                // if this new path is shorter or this node hasn't been discovered before
-                if (new path is shorter? || !hasExploredNode(neighbours[i]))
-                // calculate f score relative to current?
-                // ADD THIS METHOD TO NODE CLASS
-                neighbours[i].setFScore();
-                //what is the "parent in this case?"
-                //ADD THIS ATTRIBUTE TO NODE CLASS
-                current = neighbours[i].parent;
-                if (hasExplored(neighbours[i]))
-                {
-                  // what is the point of this?
-                  notExplored.add(neighbours[i])
-                }
-              }
-              // if isn't traversable, skip
-            }
-          }
+        // Cleanup allocated nodes
+        for (auto& pair : allNodes) {
+            delete pair.second;
         }
 
-        // assign final path poses to path message
-        path = finalPath;
-        // publishes an array of poses
+        // publish the path
         path_pub_->publish(path);
     }
 };
 
-// function implementations
-// Returns list of nodes with the lowest f score (list in case multiple nodes have the same low f score)
-vector<AStarNode> findLowestFScore(&vector<AStarNode> list){
-  int lowestScore = INT_MAX;
-  vector<AStarNode> lowestList;
-  for (int i = 0; i > list.length(), i++){
-    // Case 1: new low
-    if (list[i].fscore < lowestScore)
-    {
-      lowestScore = list[i].fscore;
-      // clear the current in the list since there's a new low
-      lowestList.clear();
-      lowestList.add(list[i];)
-    }    
-    // Case 2: multiple that are lowest
-    if (list[i].fscore == lowestScore){
-      lowestList.add(list[i]);
-    }
-  }
-    return lowestList;
-  }
-
-  // creates list of neighbours with index ranging from top left to bottom right
-vector<AStarNode> findNeighbours(AStarNode given_node){
-  vector<AStarNode> neighbours;
-  // get node cell index
-  currentCell = given_node.cellidx;
-  // array returns from top left to bottom right row by row
-  // each row is 30 long, so left and right are -1 and +1, top and bottom are -30 and +30 assuming map[0] is bottom left
-  
-  // im too lazy to make a loop for this
-  // this adds to end of list
-  // if the final cell index is a negative number, skip indexing that b/c it doesn't exist
-  // top row (left to right)
-  for (int i = -31; i >= -29; i++){
-    if (current_cell + i > -1){
-      neighbours.push_back(new AStarNode(current_cell + i, 0);    
-    }
-  }
-  // middle row
-  for (int i = -1; i =< 1; i++;){
-    // also skips the current cell you're on from being indexed as a neighbour
-    if ((current_cell + i > -1) && i != 0){
-      neighbours.push_back(new AStarNode(current_cell + i, 0); 
-    }
-  }
-  // bottom row (left to right)
-  for (int i = 29; i >= 31; i++){
-    if (current_cell + i > -1){
-      neighbours.push_back(new AStarNode(current_cell + i, 0);    
-    }
-  }
-
-  return neighbours;
-}
 
 
 
-
-
-
-}
 
 
 

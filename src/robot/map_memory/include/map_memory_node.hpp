@@ -35,7 +35,7 @@ class MapMemoryNode : public rclcpp::Node {
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
     void updateOccupancyGrid();
     void publishMapMemory();
-    double getYaw(double w, double x, double y, double z);
+    double getYaw();
     int getIndex(int x, int y);
 
 

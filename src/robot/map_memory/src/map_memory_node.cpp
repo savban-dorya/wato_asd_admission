@@ -95,8 +95,13 @@ void MapMemoryNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
 
 
 // Function to convert quaternion to Yaw
-double MapMemoryNode::getYaw(double w, double x, double y, double z)
+double MapMemoryNode::getYaw()
 {
+  double w = odom_.pose.pose.orientation.w; 
+  double x = odom_.pose.pose.orientation.x; 
+  double y = odom_.pose.pose.orientation.y;
+  double z = odom_.pose.pose.orientation.z;
+
   return std::atan2(2.0 * (w * z + x * y),
                     1.0 - 2.0 * (y * y + z * z));
 }
@@ -122,15 +127,10 @@ void MapMemoryNode::updateOccupancyGrid() {
     // Update costmap to the global OccupancyGrid
 
     // Get Robot pose
-    double robot_to_origin_x = odom_.pose.pose.position.x * RESOLUTION;
-    double robot_to_origin_y = odom_.pose.pose.position.y * RESOLUTION;
+    int robot_to_origin_x = odom_.pose.pose.position.x * RESOLUTION;
+    int robot_to_origin_y = odom_.pose.pose.position.y * RESOLUTION;
 
-    double robot_yaw = getYaw(
-      odom_.pose.pose.orientation.w, 
-      odom_.pose.pose.orientation.x, 
-      odom_.pose.pose.orientation.y, 
-      odom_.pose.pose.orientation.z
-    );
+    double robot_yaw = getYaw();
 
     // Loop through every point in costmap and convert it to the grid
     for(int costmap_point_x = -POINT_TO_ARRAY; costmap_point_x < POINT_TO_ARRAY; costmap_point_x++)
@@ -138,13 +138,13 @@ void MapMemoryNode::updateOccupancyGrid() {
       for(int costmap_point_y = -POINT_TO_ARRAY; costmap_point_y < POINT_TO_ARRAY; costmap_point_y++)
       {
           // Account for rotation
-          double unrotated_costmap_point_x = costmap_point_x * std::cos(robot_yaw)  - costmap_point_y * std::sin(robot_yaw);
+          int unrotated_costmap_point_x = costmap_point_x * std::cos(robot_yaw)  - costmap_point_y * std::sin(robot_yaw);
 
-          double unrotated_costmap_point_y = costmap_point_x * std::sin(robot_yaw) + costmap_point_y * std::cos(robot_yaw);
+          int unrotated_costmap_point_y = costmap_point_x * std::sin(robot_yaw) + costmap_point_y * std::cos(robot_yaw);
 
           // Find point in the world using (0,0) as the center of the world
-          int world_to_origin_x = static_cast<int>(robot_to_origin_x + unrotated_costmap_point_x);
-          int world_to_origin_y = static_cast<int>(robot_to_origin_y + unrotated_costmap_point_y);  
+          int world_to_origin_x = robot_to_origin_x + unrotated_costmap_point_x;
+          int world_to_origin_y = robot_to_origin_y + unrotated_costmap_point_y;  
 
           // Get Array Indices for the points
           int global_array_index = getIndex(world_to_origin_x, world_to_origin_y);

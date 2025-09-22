@@ -98,8 +98,21 @@ geometry_msgs::msg::Twist ControlNode::computeVelocity(const geometry_msgs::msg:
   double dy = target.pose.position.y - robot_odom_->pose.pose.position.y;
   double target_angle = std::atan2(dy, dx);  // [-pi, pi]
   
+  // Yaw is the robots current orientation
+  double yaw = getYaw();
+
+  double angle_correction = target_angle - yaw;
+
+  // Adjust for direction whichever is easier ensures its within (pi, -pi)
+  while (angle_correction > M_PI){
+    angle_correction -= 2.0 * M_PI;
+  }
+  while (angle_correction < -M_PI) {
+    angle_correction += 2.0 * M_PI;
+  }
+
   // Set angular velocity but dont let it be too fast
-  command_velocity_.angular.z = std::clamp(target_angle, -ANGULAR_SPEED_LIMIT, ANGULAR_SPEED_LIMIT); 
+  command_velocity_.angular.z = std::clamp(angle_correction, -ANGULAR_SPEED_LIMIT, ANGULAR_SPEED_LIMIT); 
 
   // Check if point isn't goal 
   if(target != current_path_->poses.back())
@@ -108,8 +121,10 @@ geometry_msgs::msg::Twist ControlNode::computeVelocity(const geometry_msgs::msg:
     command_velocity_.linear.x = LINEAR_SPEED;
 
   } else {
-    // Set linear speed so it slows down towards the goal
-    command_velocity_.linear.x = (LINEAR_SPEED / LOOKAHEAD_DISTANCE) * distance_;
+    // Set linear speed so it slows down towards the goal if greater than the linear speed take the linear speed
+    double formula_speed_ = (LINEAR_SPEED / LOOKAHEAD_DISTANCE) * distance_;
+    command_velocity_.linear.x = std::min(formula_speed_, LINEAR_SPEED);
+    RCLCPP_INFO(this->get_logger(), "Lookahead point is the goal setting speed to %f" , command_velocity_.linear.x);
   }
 
   return command_velocity_;
@@ -133,10 +148,16 @@ void ControlNode::controlLoop()
     // Publish it (controls the robot) if not within goal tolerance yet
     if(getDist(robot_odom_->pose.pose.position, current_path_->poses.back().pose.position) > GOAL_TOLERANCE){
 
+      RCLCPP_INFO(this->get_logger(), "Command Velocity Published: %f with distance from goal: %f", command_velocity_.linear.x, getDist(robot_odom_->pose.pose.position, current_path_->poses.back().pose.position) );
       cmd_velocity_pub_->publish(command_velocity_);
-      RCLCPP_INFO(this->get_logger(), "Command Velocity Published");
+
     } else
     {
+      // Publish zero as the velocity
+      command_velocity_.linear.x = 0.0;
+      command_velocity_.angular.z = 0.0;
+      cmd_velocity_pub_->publish(command_velocity_);
+
       RCLCPP_INFO(this->get_logger(), "Goal has been reached");
     }
   }

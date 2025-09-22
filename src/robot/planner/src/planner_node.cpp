@@ -12,7 +12,7 @@
 PlannerNode::PlannerNode() : Node("planner"), planner_(robot::PlannerCore(this->get_logger())) {
     // Subscribers
     map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-        "/map", 10, std::bind(&PlannerNode::mapCallback, this, std::placeholders::_1));
+        "/map_memory", 10, std::bind(&PlannerNode::mapCallback, this, std::placeholders::_1));
     goal_sub_ = this->create_subscription<geometry_msgs::msg::PointStamped>(
         "/goal_point", 10, std::bind(&PlannerNode::goalCallback, this, std::placeholders::_1));
     odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
@@ -20,17 +20,19 @@ PlannerNode::PlannerNode() : Node("planner"), planner_(robot::PlannerCore(this->
 
     // Publisher
     path_pub_ = this->create_publisher<nav_msgs::msg::Path>("/path", 10);
-
     // Timer
     timer_ = this->create_wall_timer(
         std::chrono::milliseconds(500), std::bind(&PlannerNode::timerCallback, this));
 
     goal_received_ = false;
+    state_ = State::WAITING_FOR_GOAL;  // Initialize state
 } 
 
-// Map Call back function stores newest map and if pursueing goal triggers the call
 void PlannerNode::mapCallback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg) {
     current_map_ = *msg;
+    RCLCPP_INFO(this->get_logger(), "Map received: %dx%d, resolution: %.3f", 
+                current_map_.info.width, current_map_.info.height, current_map_.info.resolution);
+    
     if (state_ == State::WAITING_FOR_ROBOT_TO_REACH_GOAL) {
         planPath();
     }
@@ -40,11 +42,22 @@ void PlannerNode::goalCallback(const geometry_msgs::msg::PointStamped::SharedPtr
     goal_ = *msg;
     goal_received_ = true;
     state_ = State::WAITING_FOR_ROBOT_TO_REACH_GOAL;
+    
+    RCLCPP_INFO(this->get_logger(), "Goal received: (%.2f, %.2f)", 
+                goal_.point.x, goal_.point.y);
+    
     planPath();
 }
 
 void PlannerNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     robot_pose_ = msg->pose.pose;
+    
+    // Debug: Print robot position occasionally
+    static int counter = 0;
+    if (counter++ % 20 == 0) {  // Every 20 messages
+        //RCLCPP_INFO(this->get_logger(), "Robot position: (%.2f, %.2f)", 
+        //            robot_pose_.position.x, robot_pose_.position.y);
+    }
 }
  
 void PlannerNode::timerCallback() {
@@ -62,69 +75,101 @@ void PlannerNode::timerCallback() {
 bool PlannerNode::goalReached() {
     double dx = goal_.point.x - robot_pose_.position.x;
     double dy = goal_.point.y - robot_pose_.position.y;
-    return std::sqrt(dx * dx + dy * dy) < 0.5; // Threshold for reaching the goal
+    double distance = std::sqrt(dx * dx + dy * dy);
+    
+    // RCLCPP_DEBUG(this->get_logger(), "Distance to goal: %.3f", distance);
+    return distance < 0.5; // Threshold for reaching the goal
 }
  
-// Helper function to check if a cell is traversable
 bool PlannerNode::isTraversable(const CellIndex& cell) {
-    if (cell.x < 0 || cell.x >= current_map_.info.width ||
-        cell.y < 0 || cell.y >= current_map_.info.height) {
+    if (cell.x < 0 || cell.x >= static_cast<int>(current_map_.info.width) ||
+        cell.y < 0 || cell.y >= static_cast<int>(current_map_.info.height)) {
         return false;
     }
+    
     int index = cell.y * current_map_.info.width + cell.x;
-    return current_map_.data[index] < 50; // Assuming < 50 means free space
+    if (index >= static_cast<int>(current_map_.data.size())) {
+        return false;
+    }
+    
+    // Check for unknown (-1), occupied (100), or high probability cells
+    int cell_value = current_map_.data[index];
+    return cell_value == 0;
 }
 
-// Calculate Manhattan distance heuristic
 double PlannerNode::calculateHeuristic(const CellIndex& start, const CellIndex& goal) {
-    return std::abs(goal.x - start.x) + std::abs(goal.y - start.y);
+    // Use Euclidean distance for better heuristic
+    double dx = goal.x - start.x;
+    double dy = goal.y - start.y;
+    return std::sqrt(dx * dx + dy * dy);
 }
 
-// Get movement cost between adjacent cells
 double PlannerNode::getMovementCost(const CellIndex& from, const CellIndex& to) {
     int dx = std::abs(to.x - from.x);
     int dy = std::abs(to.y - from.y);
     return (dx + dy > 1) ? 1.414 : 1.0; // Diagonal movement costs sqrt(2)
 }
 
-// Convert world coordinates to grid coordinates
 PlannerNode::CellIndex PlannerNode::worldToGrid(const geometry_msgs::msg::Point& point) {
     int x = static_cast<int>((point.x - current_map_.info.origin.position.x) / 
                             current_map_.info.resolution);
     int y = static_cast<int>((point.y - current_map_.info.origin.position.y) / 
                             current_map_.info.resolution);
+    
+    //RCLCPP_DEBUG(this->get_logger(), "World (%.2f, %.2f) -> Grid (%d, %d)", 
+    //            point.x, point.y, x, y);
+    
     return CellIndex(x, y);
 }
 
-// Convert grid coordinates to world coordinates
 geometry_msgs::msg::PoseStamped PlannerNode::gridToWorld(const CellIndex& cell) {
     geometry_msgs::msg::PoseStamped pose;
-    pose.header.frame_id = "map";
+    pose.header.frame_id = "sim_world";
     pose.header.stamp = this->get_clock()->now();
     
     pose.pose.position.x = cell.x * current_map_.info.resolution + 
                             current_map_.info.origin.position.x;
     pose.pose.position.y = cell.y * current_map_.info.resolution + 
                             current_map_.info.origin.position.y;
+    pose.pose.position.z = 0.0;
     pose.pose.orientation.w = 1.0;
+    pose.pose.orientation.x = 0.0;
+    pose.pose.orientation.y = 0.0;
+    pose.pose.orientation.z = 0.0;
+    
     return pose;
 }
 
 void PlannerNode::planPath() {
-    if (!goal_received_ || current_map_.data.empty()) {
-        RCLCPP_WARN(this->get_logger(), "Cannot plan path: Missing map or goal!");
+    if (!goal_received_) {
+        RCLCPP_WARN(this->get_logger(), "Cannot plan path: No goal received!");
         return;
     }
-        
-        
-    nav_msgs::msg::Path path;
-    path.header.stamp = this->get_clock()->now();
-    path.header.frame_id = "map";
-    RCLCPP_INFO(this->get_logger(), "map data found and goal received");
+    
+    if (current_map_.data.empty()) {
+        RCLCPP_WARN(this->get_logger(), "Cannot plan path: Map data is empty!");
+        return;
+    }
+    
+    RCLCPP_INFO(this->get_logger(), "Planning path...");
 
     // Convert start and goal positions to grid coordinates
     CellIndex start_cell = worldToGrid(robot_pose_.position);
     CellIndex goal_cell = worldToGrid(goal_.point);
+
+    //RCLCPP_INFO(this->get_logger(), "Start cell: (%d, %d), Goal cell: (%d, %d)", 
+    //            start_cell.x, start_cell.y, goal_cell.x, goal_cell.y);
+
+    // Check if start and goal positions are valid
+    if (!isTraversable(start_cell)) {
+        RCLCPP_ERROR(this->get_logger(), "Start position is not traversable!");
+        return;
+    }
+    
+    if (!isTraversable(goal_cell)) {
+        RCLCPP_ERROR(this->get_logger(), "Goal position is not traversable!");
+        return;
+    }
 
     // Initialize data structures for A*
     std::priority_queue<AStarNode*, std::vector<AStarNode*>, CompareF> openSet;
@@ -139,21 +184,25 @@ void PlannerNode::planPath() {
 
     bool pathFound = false;
     AStarNode* current = nullptr;
+    int iterations = 0;
+    const int max_iterations = 10000;  // Prevent infinite loops
 
     // Main A* loop
-    while (!openSet.empty()) {
+    while (!openSet.empty() && iterations < max_iterations) {
+        iterations++;
         current = openSet.top();
         openSet.pop();
 
         // Check if we've reached the goal
         if (current->index == goal_cell) {
             pathFound = true;
+            // RCLCPP_INFO(this->get_logger(), "Path found after %d iterations", iterations);
             break;
         }
 
         closedSet.insert(current->index);
 
-        // Check all neighbors
+        // Check all 8 neighbors
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
                 if (dx == 0 && dy == 0) continue;
@@ -197,69 +246,49 @@ void PlannerNode::planPath() {
         }
     }
 
+    if (iterations >= max_iterations) {
+        RCLCPP_WARN(this->get_logger(), "A* algorithm reached maximum iterations (%d)", max_iterations);
+    }
+
+    // Create path message
+    nav_msgs::msg::Path path;
+    path.header.stamp = this->get_clock()->now();
+    path.header.frame_id = "sim_world";
+
     // Reconstruct and publish path if one was found
-    if (pathFound) {
+    if (pathFound && current != nullptr) {
         std::vector<geometry_msgs::msg::PoseStamped> poses;
-        while (current != nullptr) {
-            poses.push_back(gridToWorld(current->index));
-            current = current->parent;
+        AStarNode* path_node = current;
+        
+        while (path_node != nullptr) {
+            poses.push_back(gridToWorld(path_node->index));
+            path_node = path_node->parent;
         }
 
         // Reverse the path to go from start to goal
         std::reverse(poses.begin(), poses.end());
         path.poses = poses;
 
-        RCLCPP_INFO(this->get_logger(), "Path found with %zu waypoints", poses.size());
+        // RCLCPP_INFO(this->get_logger(), "Path found with %zu waypoints", poses.size());
     } else {
         RCLCPP_WARN(this->get_logger(), "No path found to goal");
+        // Still publish empty path to indicate no path found
     }
-
-    // Cleanup allocated nodes
-    for (auto& pair : allNodes) {
-        delete pair.second;
-    }  
-    // Compute path using A* on current_map_
-    // Fill path.poses with the resulting waypoints.
-    //pseudocode
-    // Show start node and end node on foxglove
-    // these are all 30x30 cells, so each cell is 5m (im assuming)
-
-    // int[] map_data = map_sub_.data;
-
-    
-    // getting covariance matrix
-    // odom_sub_ is a subscription handle, not the data
-    // std::array<double, 36> robot_pose = robot_pose_.covariance;
-    // int robot_x = int(robot_pose.x);
-    // int robot_y = int(robot_pose.y);
-    // // round position to nearest int and assign it a cell
-    // //cells are 0,299 x and y, and coordinates range too
-    // // to find correct cell, convert robot pose coords to a specific cell in map memory
-    // // using map from callback to access info
-    // double resolution = current_map_->info.resolution;
-    // int width = current_map_->info.width;
-    // int height = current_map_->info.height;
-
 
     // Cleanup allocated nodes
     for (auto& pair : allNodes) {
         delete pair.second;
     }
 
-    // publish the path
+    // Always publish the path (even if empty)
     path_pub_->publish(path);
+    RCLCPP_INFO(this->get_logger(), "Path published with %zu poses", path.poses.size());
 }
-
-
-
-
-
-
 
 int main(int argc, char ** argv)
 {
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<PlannerNode>());
-  rclcpp::shutdown();
-  return 0;
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<PlannerNode>());
+    rclcpp::shutdown();
+    return 0;
 }

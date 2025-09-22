@@ -36,9 +36,9 @@ class ControlNode : public rclcpp::Node {
     // Constants
     const double LOOKAHEAD_DISTANCE = 3.0; // m
     const double LOOKAHEAD_TOLERANCE = 0.05; // m
-    const double GOAL_TOLERANCE = 1.0; // m
+    const double GOAL_TOLERANCE = 0.1; // m
     const double LINEAR_SPEED = 1.0; // m/s
-    const double ANGULAR_SPEED_LIMIT = 1.0;
+    const double ANGULAR_SPEED_LIMIT = 0.5;
     const double GRID_MAX = 15.0;
     const double GRID_MIN = -15.0;
 
